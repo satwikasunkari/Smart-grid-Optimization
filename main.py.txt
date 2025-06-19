@@ -1,0 +1,179 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import LabelEncoder
+from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import train_test_split
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import f_classif
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC,SVR
+import joblib
+from feature_engine.outliers import Winsorizer
+import os
+from sklearn.metrics import mean_squared_error, mean_absolute_error,r2_score
+import warnings
+warnings.filterwarnings('ignore')
+dataset=pd.read_csv("Dataset.csv")
+dataset
+dataset.info()
+dataset.isnull().sum()
+dataset.describe()	
+
+dataset['DateTime'] = pd.to_datetime(dataset['DateTime'], format='%d-%m-%Y %H:%M')
+
+# Extract date, time, month, hour, minute, and day into separate columns
+
+dataset['Month'] = dataset['DateTime'].dt.month
+dataset['Hour'] = dataset['DateTime'].dt.hour
+dataset['Minute'] = dataset['DateTime'].dt.minute
+dataset['Day'] = dataset['DateTime'].dt.day
+dataset['Year'] = dataset['DateTime'].dt.year
+
+# Drop the original "DateTime" column if not needed anymore
+dataset.drop(columns=['DateTime'], inplace=True)
+
+dataset.info()
+
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import f_classif
+
+
+for column in dataset.columns:
+    plt.figure(figsize=(6, 4))
+    dataset.boxplot(column=[column])
+    plt.title('Box Plot of {}'.format(column))
+    plt.ylabel('Value')
+    plt.xlabel('{}'.format(column))
+    plt.grid(True)
+    plt.show()
+#Dealing with outliers
+
+win=Winsorizer(capping_method='iqr',tail='both',fold=1.5)
+dataset['TemperatureF']=win.fit_transform(dataset[['TemperatureF']])
+
+dataset
+
+sns.boxplot(x=dataset['TemperatureF'])
+
+X=dataset.drop('TotalUsage',axis=1)
+
+y=dataset['TotalUsage']	
+
+# Feature slection
+selector = SelectKBest(score_func=f_classif, k=10)  # Select top 10 features
+X= selector.fit_transform(X, y)
+
+#Datasplitting
+X_train,X_test,y_train,y_test= train_test_split(X,y,test_size=0.20,random_state=44)
+
+# Creating a StandardScaler instance
+scaler = StandardScaler()
+
+# Fitting the scaler on the training data and transforming both the training and testing data
+X_train= scaler.fit_transform(X_train)
+X_test= scaler.transform(X_test)
+
+#Building a ML Model
+# Define empty lists to store metrics
+mse_list = []
+mae_list = []
+r2_list = []	
+
+# Function to calculate various metrics such as accuracy, precision etc
+def calculateMetrics(algorithm, predict, testY):
+    testY = testY.astype('int')
+    predict = predict.astype('int')
+    
+    mse = mean_squared_error(testY, predict)
+    mae = mean_absolute_error(testY, predict)
+    r2 = r2_score(testY, predict) * 100
+    
+    # Append calculated metrics to lists
+    mse_list.append(mse)
+    mae_list.append(mae)
+    r2_list.append(r2)
+    
+    print(algorithm + ' Mean Squared Error: ' + str(mse))
+    print(algorithm + ' Mean Absolute Error: ' + str(mae))
+    print(algorithm + ' R^2 Score: ' + str(r2))
+    
+    # Create a scatter plot
+    plt.figure(figsize=(8, 8))
+    plt.scatter(predict, testY, color='blue')
+    plt.plot([min(testY), max(testY)], [min(testY), max(testY)], linestyle='--', color='red', lw=2)  # Identity line
+    # Set labels and title
+    plt.xlabel('Actual Values')
+    plt.ylabel('Predicted Values')
+    plt.title('Regression Performance')
+    plt.show()
+
+if os.path.exists('SVM_model.pkl'):
+    # Load the trained model from the file
+    clf = joblib.load('SVM_model.pkl')
+    print("Model loaded successfully.")
+    predict = clf.predict(X_test)
+    calculateMetrics("Support Vector Machine Classifier", predict, y_test)
+else:
+    # Train the model (assuming X_train and y_train are defined)
+    clf = SVR(kernel='linear')
+    clf.fit(X_train, y_train)
+    # Save the trained model to a file
+    joblib.dump(clf, 'SVM_model.pkl')
+    print("Model saved successfully.")
+    predict = clf.predict(X_test)
+    calculateMetrics("Support Vector Machine Regressor", predict, y_test)
+
+# Check if the model files exist
+if os.path.exists('RandomForest_model.pkl'):
+    # Load the trained model from the file
+    clf = joblib.load('RandomForest_model.pkl')
+    print("Model loaded successfully.")
+    predict = clf.predict(X_test)
+    calculateMetrics("RandomForestRegressor", predict, y_test)
+else:
+    # Train the model (assuming X_train and y_train are defined)
+    clf = RandomForestRegressor()
+    clf.fit(X_train, y_train)
+    # Save the trained model to a file
+    joblib.dump(clf, 'RandomForest_model.pkl') 
+    print("Model saved successfuly.")
+    predict = clf.predict(X_test)
+    calculateMetrics("RandomForestRegressor", predict, y_test)
+
+#showing all algorithms performance values
+columns = ["Algorithm Name","r2_list","mse_list","mae_list "]
+values = []
+algorithm_names = ["Support Vector Machine ", "RandomForestRegressor"]
+for i in range(len(algorithm_names)):
+    values.append([algorithm_names[i],r2_list[i],mse_list[i],mae_list [i]])
+    
+temp = pd.DataFrame(values,columns=columns)
+temp
+
+# prediction
+test=pd.read_csv("test.csv")
+test
+
+
+test['DateTime'] = pd.to_datetime(test['DateTime'], format='%d-%m-%Y %H:%M')
+
+test['Month'] = test['DateTime'].dt.month
+test['Hour'] = test['DateTime'].dt.hour
+test['Minute'] = test['DateTime'].dt.minute
+test['Day'] = test['DateTime'].dt.day
+test['Year'] = test['DateTime'].dt.year
+
+test.drop(columns=['DateTime'], inplace=True)
+test1= selector.transform(test)
+test2= scaler.transform(test1)
+
+# Make predictions on the selected test data
+predictions = clf.predict(test2)
+
+# Loop through each prediction and print the corresponding row and prediction value
+for i, prediction in enumerate(predictions):
+    print(test.iloc[i])
+    print("Row {}: Prediction =======> {}".format(i, prediction))
